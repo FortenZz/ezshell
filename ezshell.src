@@ -1,13 +1,43 @@
-mx = include_lib("/lib/metaxploit.so")
-if not mx then
-	mx = include_lib(current_path + "/metaxploit.so")
-	if not mx then exit("Error: missing lib metaxploit.so")
+// load metaxploit
+root=get_shell.host_computer.File("/")
+pmx = null
+newFiles=[]
+newFiles=newFiles+root.get_folders+root.get_files
+while newFiles.len
+    currFile=newFiles.pull
+    if currFile.is_folder then newFiles=currFile.get_folders+currFile.get_files+newFiles
+    test=include_lib(currFile.path)
+    if typeof(test) == "MetaxploitLib" and not pmx then
+        pmx=currFile.path
+    end if
+end while
+if not pmx then
+    exit("Error: missing lib metaxploit.so")
+else
+    mx = include_lib(pmx)
 end if
-cr = include_lib("/lib/crypto.so")
-if not cr then
-	cr = include_lib(current_path + "/crypto.so")
-	if not cr then user_input("Warning: missing lib crypto.so. Hash reverse command is disabled.\nPress any key to continue...", false, true)
+
+
+// load crypto
+root=get_shell.host_computer.File("/")
+pcr = null
+newFiles=[]
+newFiles=newFiles+root.get_folders+root.get_files
+while newFiles.len
+    currFile=newFiles.pull
+    if currFile.is_folder then newFiles=currFile.get_folders+currFile.get_files+newFiles
+    test=include_lib(currFile.path)
+    if typeof(test) == "cryptoLib" and not pcr then
+        pcr=currFile.path
+    end if
+end while
+if not pcr then
+    if not cr then user_input("Warning: missing lib crypto.so. Hash reverse command is disabled.\nPress any key to continue...", false, true)
+else
+    cr = include_lib(pcr)
 end if
+
+
 
 // init local vars
 local = {}
@@ -115,7 +145,10 @@ end function
 
 
 g_cmds.hash = function(args)
-    if not cr then return print("missing crypto.so")
+    if not cr then
+        print("missing crypto.so")
+        return 
+    end if
 	show = false
 	if args.len >= 2 then
 		for arg in args
@@ -127,31 +160,32 @@ g_cmds.hash = function(args)
 		end for
 	end if
 	
-    output = ""
-    for cipher in args
-		if cipher == "-s" then continue
+    output = []
+    for arg in args
+		for cipher in arg.split(char(10))
+			if cipher == "-s" then continue
 		
-        if cipher.indexOf(":") then
-            user = cipher.split(":")[0]
-            hash = cipher.split(":")[1]
-        else
-            user = null
-            hash = cipher
-        end if
+       		if cipher.indexOf(":") then
+            	user = cipher.split(":")[0]
+            	hash = cipher.split(":")[1]
+        	else
+            	user = null
+            	hash = cipher
+        	end if
         
-        pass = cr.decipher(hash)
-        if not pass then print("wrong syntax: " + hash + "\n")
+        	pass = cr.decipher(hash)
+        	if not pass then print("wrong syntax: " + hash + "\n")
 		
-		if show then
-			if user then print(user + ":" + pass + "\n")
-			if not user then print(pass + "\n")
-		end if
+			if show then
+				if user then print(user + ":" + pass + "\n")
+				if not user then print(pass + "\n")
+			end if
 		
-        if user then output = output + user + ":" + pass + "\n"
-        if not user then output = output + pass + "\n"
+        	if user then output.push(user + ":" + pass)
+        	if not user then output.push(pass)
+    	end for
     end for
-    
-    return print("results:\n" + output)
+    return output.join("\n")
 end function
 
 cmds["shell"]["hash"] = {"name": "hash", "description": "deciphering user:hash and hash strings (split them with spaces)", "args": "[*user:hash/hash] [opt: -s]"}
@@ -171,11 +205,11 @@ end function
 
 
 g_cmds.nmap = function(args)
-    if args.len < 1 then return print("wrong params!")
+    if args.len < 1 then return "wrong params!"
 
     ip = args[0]
     if not is_valid_ip(ip) then ip = nslookup(ip)
-    if not is_valid_ip(ip) then return print("ip not found!")
+    if not is_valid_ip(ip) then return "ip not found!"
 	print("scanning " + ip + "...\n")
 
     islan = is_lan_ip(ip)
@@ -186,7 +220,7 @@ g_cmds.nmap = function(args)
         router = get_router(ip)
     end if
 
-    if not router then return print("ip not found!")
+    if not router then return "ip not found!"
 
     // colors
     op = "<color=#88DA7A>"
@@ -307,7 +341,6 @@ g_cmds.nmap = function(args)
     	end for
     	print(format_columns(info)+"\n")
     end if
-    return true
 end function
 
 cmds["shell"]["nmap"] = {"name": "nmap", "description": "show full network information", "args": "[ip]"}
@@ -485,7 +518,8 @@ end function
 g_cmds.shells = function(args)
 	if args and args[0] == "-clear" then
 		results.shell = []
-		return print("cleared")
+		print("cleared")
+        return
 	end if
 	
     output = "\n[#] TYPE USER PUBLIC_IP LAN_IP TARGET VERSION MEMORY VALUE\n"
@@ -535,7 +569,8 @@ end function
 g_cmds.comps = function(args)
 	if args and args[0] == "-clear" then
 		results.computer = []
-		return print("cleared")
+        print("cleared")
+		return 
 	end if
     output = "\n[#] TYPE USER PUBLIC_IP LAN_IP TARGET VERSION MEMORY VALUE\n"
     i = 0
@@ -584,14 +619,15 @@ end function
 g_cmds.files = function(args)
     if args and args[0] == "-clear" then
 		results.file = []
-		return print("cleared")
+        print("cleared")
+		return 
 	end if
-    output = "\n[#] TYPE USER PUBLIC_IP LAN_IP TARGET VERSION MEMORY VALUE\n"
+    output = "\n[#] FILE USER PUBLIC_IP LAN_IP TARGET VERSION MEMORY VALUE\n"
     i = 0
     for obj in results.file
         if vars.show_ip then ip = current.ip
         if vars.show_lan then lan = current.lan
-        if obj.result == "<bounce>" then type = obj.result else type = typeof(obj.result)
+        type = obj.result.path
         output = output + "[" + i + "] " + type + " " + obj.user + " " + obj.ip + " " + obj.lan + " " + obj.target + " " + obj.mem + " " + obj.val + "\n"
     	i = i + 1
 	end for
@@ -635,7 +671,8 @@ end function
 g_cmds.nums = function(args)
 	if args and args[0] == "-clear" then
 		results.number = []
-		return print("cleared")
+        print("cleared")
+		return 
 	end if
     output = "\n[#] TYPE USER PUBLIC_IP LAN_IP TARGET VERSION MEMORY VALUE\n"
     i = 0
@@ -673,13 +710,16 @@ g_cmds.nums = function(args)
 		port = obj.target.split(" ")[0].split("-")[0].to_int
 		net_session = mx.net_use(ip, port)
     	if net_session then print("Connected!")
-    	if not net_session then return print("Error: connection feiled!")
+    	if not net_session then
+            print("Error: connection feiled!")
+            return 
+        end if
 
 		metaLib = net_session.dump_lib
 	
 		result = metaLib.overflow(obj.mem, obj.val, inj)
 	
-		if typeof(result) != "number" then
+		if typeof(result) != "null" and typeof(result) != "number" then
 			print("result: <b>" + typeof(result))
 		
 			user = sys_cmds.checkUser(result)
@@ -721,7 +761,8 @@ g_cmds.results = function(args)
 		results.computer = []
 		results.file = []
 		results.number = []
-		return print("cleared")
+        print("cleared")
+		return 
 	end if
 	print("\nObtained:")
 	for i in results
@@ -759,14 +800,21 @@ cmds["shell"]["help"]["run"] = function(args) //func that runs
 		commandData = command.value //store command info in a var
 		output = output + "		" + commandData.name + " " + commandData.args.trim + " -> " + commandData.description+"\n" //store info in output ready to be print
 	end for
-	return print(output) //PRINT IT OUT
+    print(output) //PRINT IT OUT
+	return
 end function
 
 
 cmds["shell"]["rh"] = {"name":"rh", "description":"remote hack", "args":"[ip] [*ports (split: ;)] [opt: injectArg]"}
 cmds["shell"]["rh"]["run"] = function(args)
-    if not mx then return print("missing metaxploit.so")
-    if args.len < 2 then return print("invalid args")
+    if not mx then 
+        print("missing metaxploit.so")
+        return 
+    end if
+    if args.len < 2 then
+        print("invalid args")
+        return 
+    end if
 
     ip = args[0] // getting ip
     if not is_valid_ip(ip) then ip = nslookup(ip)
@@ -1077,7 +1125,7 @@ cmds["shell"]["ls"]["run"] = function(args)
 
         i = i + 1
     end for
-    return print(format_columns(output.join("\n")) + "\n")
+    return format_columns(output.join("\n")) + "\n"
 end function
 
 cmds["shell"]["cat"] = {"name": "cat", "description": "show file content", "args": "[path]"}
@@ -1094,7 +1142,7 @@ cmds["shell"]["cat"]["run"] = function(args)
 
     if not file.is_binary then
         if file.has_permission("r") then
-            return print(file.get_content)
+            return file.get_content
         else
             return print("cat: permission diened")
         end if
@@ -1215,7 +1263,7 @@ cmds["shell"]["mv"]["run"] = function(args)
     if not folder then return print("mv: "+args[0]+" not found")
 	
 	out = file.move(npath, name)
-    if typeof(out) == "string" then return print(out)
+    if typeof(out) == "string" then return out
 end function
 
 cmds["shell"]["cp"] = {"name": "cp", "description": "copy file", "args": "[path] [new path]"}
@@ -1230,7 +1278,7 @@ cmds["shell"]["cp"]["run"] = function(args)
     file = comp.File(path)
     if not file then file = comp.File(current.folder.path + path)
     if not file then file = comp.File(current.folder.path + "/" + path)
-    if not file then return print("mv: "+args[0]+" not found")
+    if not file then return print("cp: "+args[0]+" not found")
 
     if args[1].split("/").len > 1 then 
         name = args[1].split("/")[-1]
@@ -1243,10 +1291,10 @@ cmds["shell"]["cp"]["run"] = function(args)
     folder = comp.File(npath)
     if not folder then folder = comp.File(current.folder.path + npath)
     if not folder then folder = comp.File(current.folder.path + "/" + npath)
-    if not folder then return print("mv: "+args[0]+" not found")
+    if not folder then return print("cp: "+args[0]+" not found")
 
     out = file.copy(npath, name)
-    if typeof(out) == "string" then return print(out)
+    if typeof(out) == "string" then return out
 end function
 
 cmds["shell"]["rm"] = {"name": "rm", "description": "remove file", "args": "[path]"}
@@ -1261,7 +1309,7 @@ cmds["shell"]["rm"]["run"] = function(args)
     file = comp.File(path)
     if not file then file = comp.File(current.folder.path + path)
     if not file then file = comp.File(current.folder.path + "/" + path)
-    if not file then return print("mv: "+args[0]+" not found")
+    if not file then return print("rm: "+args[0]+" not found")
 
     if not file.has_permission("w") then return print("Permission denied.") //check perm
 	file.delete //delete file
@@ -1274,7 +1322,7 @@ cmds["shell"]["ps"]["run"] = function(args)
     if current.objType == "shell" then comp = current.obj.host_computer
     if current.objType == "computer" then comp = current.obj
 
-    return print(format_columns(comp.show_procs))
+    return format_columns(comp.show_procs)
 end function
 
 cmds["shell"]["kill"] = {"name": "kill", "description": "show all processes in the system", "args": "[PID]"}
@@ -1285,7 +1333,7 @@ cmds["shell"]["kill"]["run"] = function(args)
     if current.objType == "computer" then comp = current.obj
 	
 	out = comp.close_program(args[0].to_int)
-	if typeof(out) == "string" then return print(out)
+	if typeof(out) == "string" then return out
 end function
 
 cmds["shell"]["sys"] = {"name": "sys", "description": "shows all system files or searches for them by privileges/names/contents", "args": "[opt: -r -w -x -path:{str} -name:{str} -cont:{str}]"}
@@ -1361,13 +1409,13 @@ cmds["shell"]["sys"]["run"] = function(args)
             if subFile.name.split(".").len > 1 and subFile.name.split(".")[-1] == "src" then type = "src"
             if subFile.is_binary then type = "bin"
 
-            output = output + "[" + i + "] [" + perms + "] <" + own + "> <" + grp + "> [" + size + "] <" + type + "> " + subFile.path + "\n"
+            output = output + "[" + i + "] [" + perms + "] [" + own + "] [" + grp + "] [" + size + "] <" + type + "> " + subFile.path + "\n"
             out_files = out_files + {str(i): subFile}
             i = i + 1
         end if
     end while
 
-    return print(format_columns(output))
+    return format_columns(output)
 
 end function
 
@@ -1413,7 +1461,7 @@ cmds["shell"]["chmod"]["run"] = function(args)
     file = comp.File(pathFile)
     if file == null then return print("chmod: can't find " + pathFile)
     output = file.chmod(permissions, isRecursive)
-    if output then print(output)
+    if output then return output
 end function
 
 cmds["shell"]["chown"] = {"name": "chowd", "description": "change owner", "args": "[opt:-R] [owner] [path file/folder]"}
@@ -1436,7 +1484,7 @@ cmds["shell"]["chown"]["run"] = function(args)
     file = comp.File(pathFile)
     if file == null then return print("chown: file not found: "+pathFile)
     output = file.set_owner(owner, isRecursive)
-    if output then print(output)
+    if output then return output
 end function
 
 cmds["shell"]["chgrp"] = {"name": "chgrp", "description": "change group", "args": "[opt:-R] [group] [path file/folder]"}
@@ -1459,7 +1507,7 @@ cmds["shell"]["chgrp"]["run"] = function(args)
     file = comp.File(pathFile)
     if file == null then return print("chgrp: file not found: "+pathFile)
     output = file.set_group(group, isRecursive)
-    if output then print(output)
+    if output then return output
 end function
 
 cmds["shell"]["passwd"] = {"name": "passwd", "description": "change user password", "args": "[username]"}
@@ -1548,10 +1596,16 @@ cmds["shell"]["ssh"]["run"] = function(args)
         router = get_router(ip)
         lan = router.ping_port(port).get_lan_ip
         new_obj = {"result": shell, "user": user, "ip": ip, "lan": lan, "target": port+"-"+router.port_info(router.ping_port(port)), "mem": "####", "val": "####"}
-	    if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else return print("result already saved")
+	    if not results[typeof(shell)].indexOf(new_obj) then results[typeof(shell)].push(new_obj) else return print("result already saved")
     else
         return print(shell)
     end if
+
+	print("\nObtained:")
+	for i in results
+		print("<b> " + i.value.len + "</b> " + i.key + " objects")
+	end for
+	print()
 end function
 
 cmds["shell"]["ftp"] = {"name": "ftp", "description": "remote ftp connection", "args": "[user] [pass] [ip] [opt: port]"}
@@ -1576,10 +1630,16 @@ cmds["shell"]["ftp"]["run"] = function(args)
         router = get_router(ip)
         lan = router.ping_port(port).get_lan_ip
         new_obj = {"result": shell, "user": user, "ip": ip, "lan": lan, "target": port+"-"+router.port_info(router.ping_port(port)), "mem": "####", "val": "####"}
-	    if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else return print("result already saved")
+	    if not results[typeof(shell)].indexOf(new_obj) then results[typeof(shell)].push(new_obj) else return print("result already saved")
     else
         return print(shell)
     end if
+
+	print("\nObtained:")
+	for i in results
+		print("<b> " + i.value.len + "</b> " + i.key + " objects")
+	end for
+	print()
 end function
 
 
@@ -1593,7 +1653,7 @@ cmds["computer"]["help"]["run"] = function(args) //func that runs
 		commandData = command.value //store command info in a var
 		output = output + "		" + commandData.name + " " + commandData.args.trim + " -> " + commandData.description+"\n" //store info in output ready to be print
 	end for
-	return print(output) //PRINT IT OUT
+	print(output) //PRINT IT OUT
 end function
 
 cmds["computer"]["rh"] = cmds["shell"]["rh"]
@@ -1632,7 +1692,7 @@ cmds["file"]["help"]["run"] = function(args) //func that runs
 		commandData = command.value //store command info in a var
 		output = output + "		" + commandData.name + " " + commandData.args.trim + " -> " + commandData.description+"\n" //store info in output ready to be print
 	end for
-	return print(output) //PRINT IT OUT
+	print(output) //PRINT IT OUT
 end function
 
 cmds["file"]["rh"] = cmds["shell"]["rh"]
@@ -1735,11 +1795,11 @@ cmds["file"]["ls"]["run"] = function(args)
         if f.is_binary then type = "<BIN>"
         if f.is_folder then type = "<DIR>"
 
-        output.push("["+i+"] "+type+" "+name+" ["+my_perms+"] "+size+" "+owner+" "+group+" "+perms)
+        output.push("["+i+"] "+type+" "+name+" ["+my_perms+"] ["+size+"] ["+owner+"] ["+group+"] ["+perms+"]")
 
         i = i + 1
     end for
-    return print(format_columns(output.join("\n")) + "\n")
+    return format_columns(output.join("\n")) + "\n"
 end function
 
 sys_cmds.get_file = function(p) // for file objects
@@ -1809,7 +1869,7 @@ cmds["file"]["cat"]["run"] = function(args)
 
     if not file.is_binary then
         if file.has_permission("r") then
-            return print(file.get_content)
+            return file.get_content
         else
             return print("cat: permission denied")
         end if
@@ -1854,7 +1914,7 @@ cmds["file"]["mv"]["run"] = function(args)
     if not folder then return print("mv: dir not found - " + npath)
 
     out = file.move(npath, name)
-    if typeof(out) == "string" then return print(out)
+    if typeof(out) == "string" then return out
 end function
 
 cmds["file"]["cp"] = {"name":"cp", "description":"copy file", "args":"[path] [new path]"}
@@ -1872,7 +1932,7 @@ cmds["file"]["cp"]["run"] = function(args)
     if not folder then return print("cp: dir not found - " + npath)
 
     out = file.copy(npath, name)
-    if typeof(out) == "string" then return print(out)
+    if typeof(out) == "string" then return out
 end function
 
 cmds["file"]["rm"] = {"name":"rm", "description":"remove file", "args":"[path]"}
@@ -1960,13 +2020,13 @@ cmds["file"]["sys"] = {"name": "sys", "description": "shows all system files or 
             if subFile.name.split(".").len > 1 and subFile.name.split(".")[-1] == "src" then type = "src"
             if subFile.is_binary then type = "bin"
 
-            output = output + "[" + i + "] [" + perms + "] <" + own + "> <" + grp + "> [" + size + "] <" + type + "> " + subFile.path + "\n"
+            output = output + "[" + i + "] [" + perms + "] [" + own + "] [" + grp + "] [" + size + "] <" + type + "> " + subFile.path + "\n"
             out_files = out_files + {str(i): subFile}
             i = i + 1
         end if
     end while
 
-    return print(format_columns(output))
+    return format_columns(output)
 
 end function
 
@@ -1975,8 +2035,15 @@ end function
 execute = function(input)
 	input = input.trim
 	add = false
-	
-    cmd = input.split(" ") //split the input into an array of words
+
+    path = null
+    if typeof(input.indexOf(">")) == "number" then
+        path = input.split(">")[1].trim
+        cmd = input.split(">")[0].trim.split(" ")
+    else
+        cmd = input.trim.split(" ")
+    end if
+
     if cmd[0] != "&" then
 		if cmd[0] != "<" and cmd[0] != "<<" then add = true 
         cmdName = cmd[0].lower  //get the first word as the command name
@@ -1996,9 +2063,47 @@ execute = function(input)
         end if
     end if
 	if add then memory.cmd_history.push(input)// add command to history
-    command.run(args) //run the command
+
+    output = command.run(args) //run the command
+	if typeof(output) != "string" then return
+    if output then print(output)
+    output = output.replace("\n", char(10))
+
+    if output and path then // add output to file
+        file = local.comp.File(path)
+        if not file then
+            file = local.comp.File(parent_path(path))
+            if file and file.is_folder then
+                name = path.split("/")[-1]
+                if file.has_permission("w") then
+                    local.comp.touch(parent_path(path), name)
+                    local.comp.File(path).set_content(output)
+                else
+                    return print("<b>can't save output: permission denied")
+                end if
+            else
+                return print("<b>can't save output: dir not found")
+            end if
+        else
+            if not file.is_binary then
+                cont = ""
+                if not file.has_permission("w") then return print("<b>can't save output: permission denied")
+                if not file.has_permission("r") then
+                    sure = user_input("<b>read permission denied. replace text in file? (y/n): ", false, true).lower
+                    if sure != "y" then return
+                    file.set_content(output)
+                    return
+                end if
+                cont = file.get_content
+				if cont.split("\n")[-1] != "" then cont = cont + char(10)
+                file.set_content(cont + output + char(10))
+            else
+                return print("<b>can't save output: file is binary")
+            end if
+        end if
+    end if
+
 	if command.name == "help" then print("		& [command] -> don't save the command in memory\n")
-    return
 end function
 
 main = function()
