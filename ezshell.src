@@ -1,6 +1,7 @@
 // load metaxploit
 root=get_shell.host_computer.File("/")
 pmx = null
+mx = null
 newFiles=[]
 newFiles=newFiles+root.get_folders+root.get_files
 while newFiles.len
@@ -21,6 +22,7 @@ end if
 // load crypto
 root=get_shell.host_computer.File("/")
 pcr = null
+cr = null
 newFiles=[]
 newFiles=newFiles+root.get_folders+root.get_files
 while newFiles.len
@@ -114,9 +116,9 @@ sys_cmds.checkUser = function(result)
     end if
     if rfile and rfile.has_permission("r") then
         user = "root"
-    else if rfile then
+    else if rfile and file then
         for folder in file.get_folders
-            if folder.has_permission("r") and folder.name != "guest" then user = folder.name
+            if folder.has_permission("r") and folder.name != "guest" and folder.is_folder then user = folder.name
         end for
     end if
     if typeof(result) == "file" then
@@ -329,7 +331,7 @@ g_cmds.nmap = function(args)
     print("\n" + format_columns(info.join("\n")))
 
     print("furewall:")
-    info = "ACTION PORT SOURCE DESTINATION"
+    info = "<color=#EBB26E>ACTION PORT SOURCE DESTINATION"
     firewalls = router.firewall_rules
     if firewalls.len < 1 then
     	print(op+"No firewall rules\n")
@@ -852,6 +854,7 @@ cmds["shell"]["rh"]["run"] = function(args)
                 value = add[add.indexOf("<b>")+3:add.indexOf("</b>")]
 		        value = value.replace("\n", "")
 				
+				lan = null
 				bounce = false
                 if rtr and inj == "" then
     				result = metaLib.overflow(mem, value, router.devices_lan_ip[0])
@@ -861,6 +864,7 @@ cmds["shell"]["rh"]["run"] = function(args)
 					end if
 				else
 					result = metaLib.overflow(mem, value, inj)
+					if typeof(result) == "computer" then lan = result.local_ip
 				end if
 
     			if typeof(result) == "null" then
@@ -870,13 +874,15 @@ cmds["shell"]["rh"]["run"] = function(args)
     	
 				if typeof(result) != "number" then user = sys_cmds.checkUser(result) else user = "####"
 				if bounce then result = "<bounce>"
-	
-				if rtr then lan = router.local_ip else lan = router.ping_port(port).get_lan_ip
+				
+				if not lan then
+					if rtr then lan = router.local_ip else lan = router.ping_port(port).get_lan_ip
+				end if
 				if rtr then target = port + "-router " + router.kernel_version else target = port + "-" + router.port_info(router.ping_port(port))
 	
 				new_obj = {"result": result, "user": user, "ip": ip, "lan": lan, "target": target, "mem": mem, "val": value}
 				if bounce then result = 0
-				if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else return print("result already saved")
+				if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else print("result already saved")
 
             end for
         end for
@@ -931,7 +937,7 @@ cmds["shell"]["mrh"]["run"] = function(args)
 	if rtr then target = port + "-router " + router.kernel_version else target = port + "-" + router.port_info(router.ping_port(port))
 	
 	new_obj = {"result": result, "user": user, "ip": ip, "lan": lan, "target": target, "mem": mem, "val": value}
-	if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else return print("result already saved")
+	if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else print("result already saved")
 
     print("\nObtained:")
 	for i in results
@@ -997,7 +1003,7 @@ cmds["shell"]["lh"]["run"] = function(args)
 				
 				new_obj = {"result": result, "user": user, "ip": local.ip, "lan": local.lan, "target": meta.lib_name + " " + meta.version, "mem": mem, "val": value}
 				
-				if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj)
+				if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else print("result already saved")
 			end for
 		end for
     end for
@@ -1031,7 +1037,7 @@ cmds["shell"]["mlh"]["run"] = function(args)
 	if typeof(result) != "number" then user = sys_cmds.checkUser(result) else user = "####"
 	
 	new_obj = {"result": result, "user": user, "ip": local.ip, "lan": local.lan, "target": metaLib.lib_name + " " + metaLib.version, "mem": args[1], "val": args[2]}
-	if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else return print("result already saved")
+	if not results[typeof(result)].indexOf(new_obj) then results[typeof(result)].push(new_obj) else print("result already saved")
 
     print("\nObtained:")
 	for i in results
@@ -1355,8 +1361,8 @@ cmds["shell"]["sys"]["run"] = function(args)
 			if arg.split(":")[0] == "-path" then
 				path = arg.split(":")[1].replace("{", "").replace("}", "")
 				folder = comp.File(path)
-				if not folder then folder = comp.File(curent.folder.path + path)
-				if not folder then folder = comp.File(curent.folder.path + "/" + path)
+				if not folder then folder = comp.File(current.folder.path + path)
+				if not folder then folder = comp.File(current.folder.path + "/" + path)
 				if not folder then continue
 				if not folder.is_folder then folder = folder.parent
 				
@@ -1640,6 +1646,26 @@ cmds["shell"]["ftp"]["run"] = function(args)
 		print("<b> " + i.value.len + "</b> " + i.key + " objects")
 	end for
 	print()
+end function
+
+cmds["shell"]["launch"] = {"name": "launch", "description": "launch program", "args": "[program] [*args]"}
+cmds["shell"]["launch"]["run"] = function(args)
+    if args.len == 0 then return print("invalid args")
+
+    comp = current.obj.host_computer
+
+    path = args[0]
+    if args.len > 1 then launch_args = args[1:].join(" ") else launch_args = ""
+
+    file = comp.File(path)
+    if not file then file = comp.File(current.folder.path + path)
+    if not file then file = comp.File(current.folder.path + "/" + path)
+    if not file then file = comp.File("/bin/" + path)
+    if not file then return print("file not found")
+
+    out = current.obj.launch(file.path, launch_args)
+    if typeof(out) == "string" then print(out)
+
 end function
 
 
@@ -1949,7 +1975,7 @@ cmds["file"]["rm"]["run"] = function(args)
 end function
 
 cmds["file"]["sys"] = {"name": "sys", "description": "shows all system files or searches for them by privileges/names/contents", "args": "[opt: -r -w -x -path:{str} -name:{str} -cont:{str}]"}
-    cmds["file"]["sys"]["run"] = function(args)
+cmds["file"]["sys"]["run"] = function(args)
     if current.objType == "shell" then comp = current.obj.host_computer
     if current.objType == "computer" then comp = current.obj
 
@@ -2030,6 +2056,26 @@ cmds["file"]["sys"] = {"name": "sys", "description": "shows all system files or 
 
 end function
 
+cmds["file"]["clog"] = {"name": "clog", "description": "copy the binary file instead of the log file", "args": ""}
+cmds["file"]["clog"]["run"] = function(args)
+    curfold = current.folder
+    while curfold.name != "/"
+        curfold = curfold.parent
+    end while
+
+    file = null
+    folders = curfold.get_folders
+    for fold in folders
+        if fold.name != "lib" and fold.name != "boot" and fold.name != "sys" then continue
+        files = fold.get_files
+        if not files then continue
+        file = files[0]
+        if file then break
+    end for
+
+    out = file.copy("/var", "system.log")
+    if typeof(out) == "string" then print(out) else print("log cleared")
+end function
 
 
 execute = function(input)
@@ -2065,6 +2111,9 @@ execute = function(input)
 	if add then memory.cmd_history.push(input)// add command to history
 
     output = command.run(args) //run the command
+	if command.name == "help" then print("		& [command] -> don't save the command in memory")
+    if command.name == "help" then print("		[command] > [file] -> save command output to file\n")
+
 	if typeof(output) != "string" then return
     if output then print(output)
     output = output.replace("\n", char(10))
@@ -2103,7 +2152,6 @@ execute = function(input)
         end if
     end if
 
-	if command.name == "help" then print("		& [command] -> don't save the command in memory\n")
 end function
 
 main = function()
